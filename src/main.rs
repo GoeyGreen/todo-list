@@ -1,8 +1,10 @@
 use std::time::{Duration, Instant};
 
 use iced::{Alignment, Color, Element, Length, Subscription, Theme};
-use iced::widget::{button, horizontal_space, text, text_input, Column, Container, Row, Scrollable};
+use iced::widget::{button, horizontal_space, text, text_input, vertical_space, Column, Container, Row, Scrollable};
 use chrono::prelude::{DateTime, Local};
+
+mod styles;
 
 #[derive(Debug, PartialEq)]
 struct ToDo{
@@ -57,7 +59,8 @@ impl ToDo {
                 .push_maybe(if self.add {Some(button("Cancel").on_press(Message::Cancel))} else {None}).spacing(10))
                 .push(horizontal_space())
                 .push(button("Reset").on_press(Message::Reset)).spacing(10));
-        main = main.push(text("To Do List: ").size(20)).push(text(&self.clock).size(16)).push(text("").size(30));
+        main = main.push(text("To Do List: ").size(20)).push(text(&self.clock).size(16)).push(text("").size(10));
+        main = main.push(Row::with_children(vec![text(format!("Tasks Completed: {}", self.complete)).into(), text(format!("Tasks Removed: {}", self.removed)).into()]).spacing(20));
         let mut tasks: Column<'_, Message> = Column::new().align_x(Alignment::Center).width(Length::Fill).padding(20).spacing(10).into();
         for (index, task) in self.tasks.clone().into_iter().enumerate(){
             if index != self.tasks.len() - 1 {
@@ -69,8 +72,10 @@ impl ToDo {
                         .push(button("Remove").on_press(Message::RemoveTask(index as i32, false)).style(|_: &Theme, status| {
                             match status {
                                 button::Status::Active => {
-                                    button::Style::default()
-                                       .with_background(Color::from_rgb(255.0, 0.0, 0.0),)
+                                    let mut style = button::Style::default()
+                                       .with_background(Color::from_rgb(70.0, 0.0, 0.0),);
+                                    style.text_color = Color::from_rgb(255.0, 255.0, 255.0);
+                                    style
                                 }
                                 _ => {
                                     let mut style = button::Style::default()
@@ -110,15 +115,20 @@ impl ToDo {
                 );
             }
         }
-        
-        main = main.push(Scrollable::new(tasks));
-        main = main.push(Row::with_children(vec![text(format!("Current Task: {}", self.stop_string)).into(), text(format!("Last Task: {}", self.last_string)).into()]).spacing(20));
+        main = main.push(text("").size(12));
         if self.add {
             main = main.push(Container::new(
                 text_input("New Task ...", &self.tasks[self.tasks.len() - 1])
                     .on_input(|content:String | Message::AddTask(content, (self.tasks.len() - 1) as i32))
                     .on_submit(Message::End)));
+        } else {
+            main = main.push(text("").size(12))
         }
+        main = main.push(Scrollable::new(tasks));
+        main = main.push(vertical_space());
+        main = main.push(Row::with_children(vec![text(format!("Current Task: {}", self.stop_string)).into(), text(format!("Last Task: {}", self.last_string)).into()]).spacing(20));
+        
+       
         main.into()
     }
 

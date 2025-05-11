@@ -5,6 +5,7 @@ use iced::widget::{button, horizontal_space, text, text_input, vertical_space, C
 use chrono::prelude::{DateTime, Local};
 
 mod styles;
+mod fs;
 use styles::buttons::*;
 
 #[derive(Debug, PartialEq)]
@@ -26,6 +27,7 @@ struct ToDo{
     breaks: Duration,
     break_start:Instant,
     break_string:String,
+    sleep:bool,
 }
 
 impl Default for ToDo {
@@ -48,6 +50,7 @@ impl Default for ToDo {
             pause_dur:Duration::new(0,0),
             break_start:Instant::now(),
             break_string:String::new(),
+            sleep: false,
         }
     }
 }
@@ -62,7 +65,7 @@ enum Message{
     RemoveTask(i32, bool),
     Tick,
     Break,
-
+    Sleep,
 }
 
 impl ToDo {
@@ -70,7 +73,19 @@ impl ToDo {
         let radius = 2;
         let mut main: Column<'_, Message> = Column::with_children(vec![]).align_x(Alignment::Center).width(Length::Fill).padding(20).spacing(10).into();
         main = main.push(
-            Row::new().push(Row::new().push(button(if !self.add {"New Task"} else {"Confirm"}).on_press(Message::New))
+            Row::new().push(Row::new().push(if !self.rest {button(if !self.add {"New Task"} else {"Confirm"}).on_press(Message::New)} 
+                else {button(if !self.sleep {"Sleep"} else {"End Sleep"}).on_press(Message::Sleep).style(move |_: &Theme, status| {
+                        match status {
+                            _ => {
+                                if self.sleep{
+                                    style_button(get_rgb_color(51, 89, 218), Color::WHITE, radius)
+                                } else {
+                                    style_button(get_rgb_color(0, 155, 0), Color::WHITE, radius)
+                                }
+                            }
+                        }
+                    })
+                })
                 .push_maybe(if self.add {Some(button("Cancel").on_press(Message::Cancel))} else {None}).spacing(10))
                 .push_maybe(if !self.add {Some(button(if !self.rest {"Take a Break"} else {"End Break"}).on_press(Message::Break).style(move |_: &Theme, status| {
                                     match status {
@@ -134,19 +149,13 @@ impl ToDo {
                         Row::new().push(button("Complete").on_press(Message::RemoveTask(index as i32, true)))
                         .push(text(task).size(16))
                         .push(horizontal_space())
-                        .push(button("Remove").on_press(Message::RemoveTask(index as i32, false)).style(|_: &Theme, status| {
+                        .push(button("Remove").on_press(Message::RemoveTask(index as i32, false)).style(move |_: &Theme, status| {
                             match status {
                                 button::Status::Active => {
-                                    let mut style = button::Style::default()
-                                       .with_background(Color::from_rgb(255.0, 0.0, 0.0),);
-                                    style.text_color = Color::from_rgb(255.0, 255.0, 255.0);
-                                    style
+                                    style_button(get_rgb_color(255, 0, 0), Color::WHITE, radius)
                                 }
                                 _ => {
-                                    let mut style = button::Style::default()
-                                       .with_background(Color::from_rgb(70.0, 0.0, 0.0),);
-                                    style.text_color = Color::from_rgb(255.0, 255.0, 255.0);
-                                    style
+                                    style_button(get_rgb_color(51, 89, 218), Color::WHITE, radius)
                                 },
                             }
                         }))
@@ -236,25 +245,40 @@ impl ToDo {
                         self.stopwatch = self.start.elapsed() + self.old_dur;
                         self.stop_string = format_duration(self.stopwatch);
                     } else {
-                        self.breaks = self.break_start.elapsed() + self.pause_dur;
-                        self.break_string = format_duration(self.breaks);
+                        if !self.sleep {
+                            self.breaks = self.break_start.elapsed() + self.pause_dur;
+                            self.break_string = format_duration(self.breaks);
+                        }
                     }
 
                 }
             },
             Message::Break => {
-                if !self.rest {
+                if !self.rest{
                     self.rest = true;
                     self.old_dur += self.start.elapsed();
                     self.break_start = Instant::now();
-                    
-                }
-                else {
+                } else {
                     self.rest = false;
-                    self.pause_dur += self.break_start.elapsed();
+                    if !self.sleep {
+                        self.pause_dur += self.break_start.elapsed();
+                    } 
+                    self.sleep = false;
                     self.start = Instant::now();
                 }
-            }
+            },
+            Message::Sleep => {
+                if self.sleep {
+                    if self.rest {
+                        self.break_start = Instant::now();
+                    }
+                } else {
+                    if self.rest {
+                        self.pause_dur += self.break_start.elapsed();
+                    }
+                }
+                self.sleep = !self.sleep;
+            },
         }
     }
 

@@ -8,7 +8,19 @@ use chrono::prelude::{DateTime, Local};
 mod styles;
 mod fs;
 mod time;
+
+// #[cfg(test)]
+// mod tests;
+
 use styles::buttons::*;
+
+// DONE: Update Timing System, to improve consistency
+// TODO: Migrate to new Time struct to reduce complexity
+// TODO: Implement file system, saves, auto-load on start
+// TODO: Create Settings Menu, autosave on task completion
+// TODO: Feature Request: Allow for dragging + reordering Tasks
+// TODO: Create Tests?
+
 
 #[derive(Debug, PartialEq)]
 struct ToDo{
@@ -322,9 +334,14 @@ impl ToDo {
                 self.tasks[index as usize] = task;
             },
             Message::RemoveTask(task_num, completed) => {
+                // Remove task from Vec
                 self.tasks.remove(task_num as usize);
-                self.last_time = self.stopwatch;
+
+                // Caculate the total time it took for the task + move to last_time
+                self.last_time = self.stopwatch + self.old_dur;
                 self.last_string = format_duration(self.last_time);
+
+                // Reset current task time
                 self.stopwatch = Duration::new(0,0);
                 self.start = Instant::now();
                 self.old_dur = Duration::new(0,0);
@@ -340,12 +357,12 @@ impl ToDo {
                     self.time = Local::now();
                     self.clock = self.time.format("%d/%m/%Y %H:%M:%S").to_string();
                     if !self.rest {
-                        self.stopwatch = self.start.elapsed() + self.old_dur;
-                        self.stop_string = format_duration(self.stopwatch);
+                        self.stopwatch = self.start.elapsed();
+                        self.stop_string = format_duration(self.stopwatch + self.old_dur);
                     } else {
                         if !self.sleep {
-                            self.breaks = self.break_start.elapsed() + self.pause_dur;
-                            self.break_string = format_duration(self.breaks);
+                            self.breaks = self.break_start.elapsed();
+                            self.break_string = format_duration(self.breaks + self.pause_dur);
                         }
                     }
 
@@ -353,14 +370,18 @@ impl ToDo {
             },
             Message::Break => {
                 if !self.rest{
+                    // Start break + Add current task time to old_dur
                     self.rest = true;
                     self.old_dur += self.start.elapsed();
                     self.break_start = Instant::now();
+
+                    self.stopwatch = Duration::new(0,0);
                 } else {
                     self.rest = false;
                     if !self.sleep {
                         self.pause_dur += self.break_start.elapsed();
                     } 
+                    self.breaks = Duration::new(0,0);
                     self.sleep = false;
                     self.start = Instant::now();
                 }

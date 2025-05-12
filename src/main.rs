@@ -1,11 +1,13 @@
 use std::time::{Duration, Instant};
 
+use fs::save_to_json;
 use iced::{Alignment, Color, Element, Length, Subscription, Theme};
 use iced::widget::{button, horizontal_space, text, text_input, vertical_space, Column, Container, Row, Scrollable};
 use chrono::prelude::{DateTime, Local};
 
 mod styles;
 mod fs;
+mod time;
 use styles::buttons::*;
 
 #[derive(Debug, PartialEq)]
@@ -28,6 +30,7 @@ struct ToDo{
     break_start:Instant,
     break_string:String,
     sleep:bool,
+    reset:bool,
 }
 
 impl Default for ToDo {
@@ -51,6 +54,7 @@ impl Default for ToDo {
             break_start:Instant::now(),
             break_string:String::new(),
             sleep: false,
+            reset: false,
         }
     }
 }
@@ -66,62 +70,139 @@ enum Message{
     Tick,
     Break,
     Sleep,
+    Save,
 }
 
 impl ToDo {
     pub fn view(&self) -> Element<Message>{
+        // Sets the rounding radius for button elements with custom styles
         let radius = 2;
-        let mut main: Column<'_, Message> = Column::with_children(vec![]).align_x(Alignment::Center).width(Length::Fill).padding(20).spacing(10).into();
+
+        // Stores all the contents on the screen
+        let mut main: Column<'_, Message> = Column::new().align_x(Alignment::Center).width(Length::Fill).padding(20).spacing(10).into();
+
+
         main = main.push(
-            Row::new().push(Row::new().push(if !self.rest {button(if !self.add {"New Task"} else {"Confirm"}).on_press(Message::New)} 
-                else {button(if !self.sleep {"Sleep"} else {"End Sleep"}).on_press(Message::Sleep).style(move |_: &Theme, status| {
-                        match status {
-                            _ => {
-                                if self.sleep{
-                                    style_button(get_rgb_color(51, 89, 218), Color::WHITE, radius)
-                                } else {
-                                    style_button(get_rgb_color(0, 155, 0), Color::WHITE, radius)
+            // Top Row buttons
+            Row::new().push(
+                Row::new().push(if !self.rest && !self.reset {
+                    button(
+                        if !self.add {"New Task"} 
+                        else {"Confirm"}).on_press(Message::New)
+                    } 
+                    else if self.reset {
+                        button("Reset All").on_press(Message::Reset(false)).style(
+                            move |_: &Theme, status| {
+                                match status {
+                                    button::Status::Hovered => {
+                                        style_button(get_rgb_color(200, 0, 0), Color::WHITE, radius)
+                                    },
+                                    _ => {
+                                        style_button(get_rgb_color(220, 8, 51), Color::WHITE, radius)
+                                    },
                                 }
                             }
-                        }
-                    })
-                })
-                .push_maybe(if self.add {Some(button("Cancel").on_press(Message::Cancel))} else {None}).spacing(10))
-                .push_maybe(if !self.add {Some(button(if !self.rest {"Take a Break"} else {"End Break"}).on_press(Message::Break).style(move |_: &Theme, status| {
-                                    match status {
-                                        _ => {
-                                            if self.rest{
-                                                style_button(get_rgb_color(255, 0, 0), Color::WHITE, radius)
-                                            } else {
-                                                style_button(get_rgb_color(51, 89, 218), Color::WHITE, radius)
-                                            }
+                        )
+                    }
+                    else {
+                        button(if !self.sleep {"Sleep"} else {"End Sleep"}).on_press(Message::Sleep).style(
+                            move |_: &Theme, status| {
+                                match status {
+                                    _ => {
+                                        if self.sleep{
+                                            style_button(get_rgb_color(51, 89, 218), Color::WHITE, radius)
+                                        } else {
+                                            style_button(get_rgb_color(0, 155, 0), Color::WHITE, radius)
                                         }
                                     }
-                                })
-                            )} else {None}).spacing(10)
-                .push(horizontal_space())
-                .push(button("Reset Time").on_press(Message::Reset(true)).style(move |_: &Theme, status| {
-                    match status {
-                        button::Status::Hovered => {
-                            style_button(get_rgb_color(255, 0, 0), Color::WHITE, radius)
+                                }
                         }
-                        _ => {
-                            style_button(get_rgb_color(51, 89, 218), Color::WHITE, radius)
-                        },
+                    )
                     }
-                })).spacing(10)
-                .push(button("Reset").on_press(Message::Reset(false)).style(move |_: &Theme, status| {
+                )
+                .push_maybe(
+                    if self.add {
+                        Some(button("Cancel").on_press(Message::Cancel))
+                    } 
+                    else {
+                        None
+                    }
+                ).spacing(10)
+            )
+            .push_maybe(
+                if !self.add && !self.reset{
+                    Some(button(
+                            if !self.rest {"Take a Break"} 
+                            else {"End Break"}
+                        ).on_press(Message::Break).style(
+                            move |_: &Theme, status| {
+                                match status {
+                                    _ => {
+                                        if self.rest{
+                                            style_button(get_rgb_color(255, 0, 0), Color::WHITE, radius)
+                                        } else {
+                                            style_button(get_rgb_color(51, 89, 218), Color::WHITE, radius)
+                                        }
+                                    }
+                                }
+                            })
+                        )} 
+                        else if self.reset {Some(
+                            button("Reset Time").on_press(Message::Reset(true)).style(
+                                move |_: &Theme, status| {
+                                    match status {
+                                        button::Status::Hovered => {
+                                            style_button(get_rgb_color(255, 0, 0), Color::WHITE, radius)
+                                        },
+                                        _ => {
+                                            style_button(get_rgb_color(51, 89, 218), Color::WHITE, radius)
+                                        },
+                                    }
+                                }
+                            )
+                        )}
+                        else {
+                            None
+                        }).spacing(10)
+                .push(horizontal_space())
+                .push(button(if !self.reset {"Reset"} else {"Cancel"}).on_press(if !self.reset {Message::Reset(false)} else {Message::Cancel}).style(
+                    move |_: &Theme, status| {
                         match status {
                             button::Status::Hovered => {
-                                style_button(get_rgb_color(255, 0, 0), Color::WHITE, radius)
+                                style_button(get_rgb_color(205, 0, 0), Color::WHITE, radius)
                             }
                             _ => {
-                                style_button(get_rgb_color(51, 89, 218), Color::WHITE, radius)
+                                if self.reset {
+                                    style_button(get_rgb_color(155, 0, 0), Color::WHITE, radius)
+                                } else {
+                                    style_button(get_rgb_color(51, 89, 218), Color::WHITE, radius)
+                                }
                             },
                         }
-                    })).spacing(10));
+                    }
+                )
+            ).spacing(10)
+            .push(
+                button("Save").on_press(Message::Save).style(
+                        move |_: &Theme, status| {
+                            match status {
+                                button::Status::Hovered => {
+                                    style_button(get_rgb_color(0, 180, 0), Color::WHITE, radius)
+                                }
+                                _ => {
+                                    style_button(get_rgb_color(51, 89, 218), Color::WHITE, radius)
+                                }
+                            }
+                    }
+                )
+            )
+        );
+
+        // Text for ToDo List Including Task Count, Clock, and other text
         main = main.push(text("To Do List: ").size(20)).push(text(&self.clock).size(16)).push(text("").size(10));
         main = main.push(Row::with_children(vec![text(format!("Tasks Completed: {}", self.complete)).into(), text(format!("Tasks Removed: {}", self.removed)).into()]).spacing(20));
+
+        // Section for all Tasks
         let mut tasks: Column<'_, Message> = Column::new().align_x(Alignment::Center).width(Length::Fill).padding(20).spacing(10).into();
         for (index, task) in self.tasks.clone().into_iter().enumerate(){
             if index != self.tasks.len() - 1 {
@@ -130,36 +211,43 @@ impl ToDo {
                         Row::new().push(button("Complete").on_press(Message::RemoveTask(index as i32, true)))
                         .push(text(task).size(16))
                         .push(horizontal_space())
-                        .push(button("Remove").on_press(Message::RemoveTask(index as i32, false)).style(move |_: &Theme, status| {
-                            match status {
-                                button::Status::Active => {
-                                    style_button(get_rgb_color(255, 0, 0), Color::WHITE, radius)
+                        .push(button("Remove").on_press(Message::RemoveTask(index as i32, false))
+                            .style(
+                                move |_: &Theme, status| {
+                                    match status {
+                                        button::Status::Active => {
+                                            style_button(get_rgb_color(255, 0, 0), Color::WHITE, radius)
+                                        }
+                                        _ => {
+                                            style_button(get_rgb_color(51, 89, 218), Color::WHITE, radius)
+                                        },
+                                    }
                                 }
-                                _ => {
-                                    style_button(get_rgb_color(51, 89, 218), Color::WHITE, radius)
-                                },
-                            }
-                        }))
-                        .spacing(20).width(Length::Fill)
+                            )
+                        ).spacing(20).width(Length::Fill)
                     )
                 );
             } else if !self.add && index == self.tasks.len() - 1 {
+                // Last row, Special condition to make sure the new task being added doesn't show up until confirm button is clicked
                 tasks = tasks.push(
                     Container::new(
                         Row::new().push(button("Complete").on_press(Message::RemoveTask(index as i32, true)))
                         .push(text(task).size(16))
                         .push(horizontal_space())
-                        .push(button("Remove").on_press(Message::RemoveTask(index as i32, false)).style(move |_: &Theme, status| {
-                            match status {
-                                button::Status::Active => {
-                                    style_button(get_rgb_color(255, 0, 0), Color::WHITE, radius)
+                        .push(button("Remove").on_press(Message::RemoveTask(index as i32, false))
+                            .style(
+                                move |_: &Theme, status| {
+                                    match status {
+                                        button::Status::Active => {
+                                            style_button(get_rgb_color(255, 0, 0), Color::WHITE, radius)
+                                        }
+                                        _ => {
+                                            style_button(get_rgb_color(51, 89, 218), Color::WHITE, radius)
+                                        },
+                                    }
                                 }
-                                _ => {
-                                    style_button(get_rgb_color(51, 89, 218), Color::WHITE, radius)
-                                },
-                            }
-                        }))
-                        .spacing(20).width(Length::Fill)
+                            )
+                        ).spacing(20).width(Length::Fill)
                     )
                 );
             }
@@ -175,6 +263,7 @@ impl ToDo {
         }
         main = main.push(Scrollable::new(tasks));
         main = main.push(vertical_space());
+        // Times for tasks and time spent on breaks stored at the bottom row
         main = main.push(Row::with_children(vec![text(format!("Current Task: {}", self.stop_string)).into(), 
                         text(format!("Last Task: {}", self.last_string)).into(), 
                         text(format!("Break Time: {}", self.break_string)).color(if self.rest {Color::from_rgb(255.0, 0.0, 0.0)} else {Color::from_rgb(255.0, 255.0, 255.0)}).into()]).spacing(20));
@@ -186,23 +275,28 @@ impl ToDo {
     pub fn update(&mut self, message:Message) {
         match message {
             Message::Reset(time_only) => {
-                if !time_only {
-                    self.tasks =  Vec::new();
-                    self.add = false;
-                    self.complete = 0;
-                    self.removed = 0;
-                    self.rest = false;
+                if self.reset {
+                    if !time_only {
+                        self.tasks =  Vec::new();
+                        self.add = false;
+                        self.complete = 0;
+                        self.removed = 0;
+                        self.rest = false;
+                    }
+                    self.start = Instant::now();
+                    self.old_dur = Duration::new(0,0);
+                    self.stopwatch = Duration::new(0,0);
+                    self.stop_string = String::new();
+                    self.last_time = Duration::new(0,0);
+                    self.last_string = String::new();
+                    self.pause_dur = Duration::new(0,0);
+                    self.break_start = Instant::now();
+                    self.break_string = String::new();
+                    self.breaks = Duration::new(0,0);
+                    self.reset = false;
+                } else {
+                    self.reset = true;
                 }
-                self.start = Instant::now();
-                self.old_dur = Duration::new(0,0);
-                self.stopwatch = Duration::new(0,0);
-                self.stop_string = String::new();
-                self.last_time = Duration::new(0,0);
-                self.last_string = String::new();
-                self.pause_dur = Duration::new(0,0);
-                self.break_start = Instant::now();
-                self.break_string = String::new();
-                self.breaks = Duration::new(0,0);
                     
             },
             Message::New => {
@@ -214,8 +308,12 @@ impl ToDo {
                 }
             }
             Message::Cancel => {
-                self.add = false;
-                self.tasks.remove(self.tasks.len() - 1);
+                if self.add {
+                    self.add = false;
+                    self.tasks.remove(self.tasks.len() - 1);
+                } else if self.reset {
+                    self.reset = false;
+                }
             }
             Message::End => {
                 self.add = false;
@@ -279,6 +377,9 @@ impl ToDo {
                 }
                 self.sleep = !self.sleep;
             },
+            Message::Save => {
+                save_to_json(self);
+            }
         }
     }
 

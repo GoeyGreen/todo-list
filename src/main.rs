@@ -1,7 +1,8 @@
+use std::io;
 use std::time::{Duration, Instant};
 
-use fs::save_to_json;
-use iced::{Alignment, Color, Element, Length, Subscription, Theme};
+use fs::{save_to_file};
+use iced::{Alignment, Color, Element, Length, Subscription, Task, Theme};
 use iced::widget::{button, horizontal_space, text, text_input, vertical_space, Column, Container, Row, Scrollable};
 use chrono::prelude::{DateTime, Local};
 
@@ -17,12 +18,15 @@ use styles::buttons::*;
 // DONE: Update Timing System, to improve consistency
 // TODO: Migrate to new Time struct to reduce complexity
 // TODO: Implement file system, saves, auto-load on start
+// TODO: Implement auto-save functionality, on certain tick count
+// TODO: Move auto save to separate struct
 // TODO: Create Settings Menu, autosave on task completion
+// TODO: Move to Serde JSON?
 // TODO: Feature Request: Allow for dragging + reordering Tasks
 // TODO: Create Tests?
 
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 struct ToDo{
     time: DateTime<Local>,
     clock: String,
@@ -43,6 +47,8 @@ struct ToDo{
     break_string:String,
     sleep:bool,
     reset:bool,
+    tick_count: i32,
+    auto_save: bool,
 }
 
 impl Default for ToDo {
@@ -67,6 +73,8 @@ impl Default for ToDo {
             break_string:String::new(),
             sleep: false,
             reset: false,
+            tick_count: 0,
+            auto_save: true,
         }
     }
 }
@@ -83,6 +91,7 @@ enum Message{
     Break,
     Sleep,
     Save,
+    FileSave(Result<(), io::ErrorKind>),
 }
 
 impl ToDo {
@@ -284,7 +293,7 @@ impl ToDo {
         main.into()
     }
 
-    pub fn update(&mut self, message:Message) {
+    pub fn update(&mut self, message:Message) -> Task<Message>{
         match message {
             Message::Reset(time_only) => {
                 if self.reset {
@@ -309,7 +318,7 @@ impl ToDo {
                 } else {
                     self.reset = true;
                 }
-                    
+                Task::none()
             },
             Message::New => {
                 if self.add {
@@ -318,6 +327,7 @@ impl ToDo {
                     self.add = true;
                     self.tasks.push(String::new());
                 }
+                Task::none()
             }
             Message::Cancel => {
                 if self.add {
@@ -326,12 +336,15 @@ impl ToDo {
                 } else if self.reset {
                     self.reset = false;
                 }
+                Task::none()
             }
             Message::End => {
                 self.add = false;
+                Task::none()
             }
             Message::AddTask(task, index) => {
                 self.tasks[index as usize] = task;
+                Task::none()
             },
             Message::RemoveTask(task_num, completed) => {
                 // Remove task from Vec
@@ -351,6 +364,7 @@ impl ToDo {
                 } else {
                     self.removed += 1;
                 }
+                Task::none()
             },
             Message::Tick => {
                 if Local::now() != self.time {
@@ -366,6 +380,15 @@ impl ToDo {
                         }
                     }
 
+                    self.tick_count += 1;
+                    if self.tick_count == 120 && !self.sleep{
+                        // let _ = Task::perform(save_to_file(format!("{}/saves/{}", env!("CARGO_MANIFEST_DIR"), format!("auto{}_save.json", self.time.format("%H_%M").to_string())).into(), self.clone()), |result| Message::FileSave(result));
+                        Task::perform(save_to_file(format!("{}/saves/", env!("CARGO_MANIFEST_DIR")).into(), "auto_save.json".to_owned(), self.clone()), |result| Message::FileSave(result))
+                    } else {
+                        Task::none()
+                    }
+                } else {
+                    Task::none()
                 }
             },
             Message::Break => {
@@ -385,6 +408,7 @@ impl ToDo {
                     self.sleep = false;
                     self.start = Instant::now();
                 }
+                Task::none()
             },
             Message::Sleep => {
                 if self.sleep {
@@ -397,9 +421,18 @@ impl ToDo {
                     }
                 }
                 self.sleep = !self.sleep;
+                Task::none()
             },
             Message::Save => {
-                save_to_json(self);
+                // println!("Recieved Save Message");
+                Task::perform(save_to_file(format!("{}/saves/", env!("CARGO_MANIFEST_DIR")).into(), "saves.json".to_owned(),self.clone()), |result| Message::FileSave(result))
+            },
+            Message::FileSave(result) => {
+                match result {
+                    Ok(_) => {},
+                    Err(err) => {eprintln!("File Save failed {}", err)},
+                }
+                Task::none()
             }
         }
     }

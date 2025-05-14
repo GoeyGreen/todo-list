@@ -4,20 +4,11 @@ use std::{io, path::PathBuf};
 pub fn save_to_json(contents: &crate::ToDo) -> JsonValue{
     let cur_task;
     let rest;
-    if contents.rest {
-        // ! ERROR: Not calculating / saving correct times depending on current status (break vs work times)
-        cur_task = ((contents.stopwatch.as_secs() + contents.old_dur.as_secs()),
-        (contents.stopwatch.as_millis()%1000) as u32 + (contents.old_dur.as_millis()%1000) as u32);
+    cur_task = ((contents.stopwatch.as_secs() + contents.old_dur.as_secs()),
+    (contents.stopwatch.as_millis()%1000) as u32 + (contents.old_dur.as_millis()%1000) as u32);
 
-        rest = ((contents.pause_dur.as_secs() + contents.breaks.as_secs()),
-        (contents.pause_dur.as_millis()%1000) as u32 + (contents.breaks.as_millis()%1000) as u32);
-    } else {
-        cur_task = ((contents.stopwatch.as_secs() + contents.old_dur.as_secs()),
-        (contents.stopwatch.as_millis()%1000) as u32 + (contents.old_dur.as_millis()%1000) as u32);
-
-        rest = ((contents.pause_dur.as_secs() + contents.breaks.as_secs()),
-        (contents.pause_dur.as_millis()%1000) as u32 + (contents.breaks.as_millis()%1000) as u32);
-    }
+    rest = ((contents.pause_dur.as_secs() + contents.breaks.as_secs()),
+    (contents.pause_dur.as_millis()%1000) as u32 + (contents.breaks.as_millis()%1000) as u32);
     let save = json::object!{
         completed: contents.complete,
         removed: contents.removed,
@@ -35,10 +26,15 @@ pub fn save_to_json(contents: &crate::ToDo) -> JsonValue{
             (contents.last_time.as_millis() % 1000) as u32
         ]
     };
-    println!("{}", json::stringify(save.clone()));
+    println!("{}", json::stringify_pretty(save.clone(), 4));
     save
 }
 
-pub async fn save_to_file(path: PathBuf, content: &crate::ToDo) -> Result<(), io::Error>{
-    tokio::fs::write(path, json::stringify(save_to_json(content))).await.map_err(|error| error)
+pub async fn save_to_file(path: PathBuf, filename: String, content: crate::ToDo) -> Result<(), io::ErrorKind>{
+    // println!("Recieved Save");
+    if tokio::fs::metadata(&path).await.is_err() {
+        let _ = tokio::fs::create_dir(&path).await.map_err(|error| eprintln!("Failed to create directory {}", error.kind()));
+    }
+    let full_path = if let Some(dir) = path.to_str() {dir.to_owned() + &filename} else {return Err(io::ErrorKind::InvalidInput);};
+    tokio::fs::write(full_path, json::stringify_pretty(save_to_json(&content), 4)).await.map_err(|error| error.kind())
 }

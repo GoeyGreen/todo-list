@@ -1,7 +1,7 @@
 use std::io;
 use std::time::{Duration, Instant};
 
-use fs::{save_to_file};
+use fs::{save_to_file, read_from_file};
 use iced::{Alignment, Color, Element, Length, Subscription, Task, Theme};
 use iced::widget::{button, horizontal_space, text, text_input, vertical_space, Column, Container, Row, Scrollable};
 use chrono::prelude::{DateTime, Local};
@@ -14,8 +14,10 @@ mod time;
 // mod tests;
 
 use styles::buttons::*;
+use styles::*;
 
 // DONE: Update Timing System, to improve consistency
+// TODO: Change Styling for file opening
 // TODO: Migrate to new Time struct to reduce complexity
 // TODO: Implement file system, saves, auto-load on start
 // TODO: Implement auto-save functionality, on certain tick count
@@ -23,6 +25,7 @@ use styles::buttons::*;
 // TODO: Create Settings Menu, autosave on task completion
 // TODO: Move to Serde JSON?
 // TODO: Feature Request: Allow for dragging + reordering Tasks
+// TODO: Allow sorting tasks, edit on click
 // TODO: Create Tests?
 
 
@@ -32,8 +35,8 @@ struct ToDo{
     clock: String,
     tasks: Vec<String>,
     add: bool,
-    complete: i32,
-    removed: i32,
+    complete: u32,
+    removed: u32,
     start: Instant,
     old_dur: Duration,
     stopwatch: Duration,
@@ -74,7 +77,7 @@ impl Default for ToDo {
             sleep: false,
             reset: false,
             tick_count: 0,
-            auto_save: true,
+            auto_save: false,
         }
     }
 }
@@ -91,10 +94,33 @@ enum Message{
     Break,
     Sleep,
     Save,
+    Open,
     FileSave(Result<(), io::ErrorKind>),
+    FileOpen(Result<ToDo, io::ErrorKind>),
 }
 
 impl ToDo {
+    pub fn from(task_list: Vec<String>, completed: u32, removed_tasks: u32, task_time: Duration, prev_task_time: Duration, break_time: Duration) -> Self{
+        ToDo {
+            tasks:task_list,
+            complete: completed,
+            removed: removed_tasks,
+            old_dur: task_time,
+            last_time: prev_task_time,
+            pause_dur: break_time,
+            ..Default::default()
+        }
+    }
+
+    fn replace(&mut self, todo: ToDo) {
+        self.tasks = todo.tasks;
+        self.complete = todo.complete;
+        self.removed = todo.removed;
+        self.old_dur = todo.old_dur;
+        self.last_time = todo.last_time;
+        self.pause_dur = todo.pause_dur;
+    }
+
     pub fn view(&self) -> Element<Message>{
         // Sets the rounding radius for button elements with custom styles
         let radius = 2;
@@ -205,6 +231,20 @@ impl ToDo {
             ).spacing(10)
             .push(
                 button("Save").on_press(Message::Save).style(
+                        move |_: &Theme, status| {
+                            match status {
+                                button::Status::Hovered => {
+                                    style_button(get_rgb_color(0, 180, 0), Color::WHITE, radius)
+                                }
+                                _ => {
+                                    style_button(get_rgb_color(51, 89, 218), Color::WHITE, radius)
+                                }
+                            }
+                    }
+                )
+            )
+            .push(
+                button("Open").on_press(Message::Open).style(
                         move |_: &Theme, status| {
                             match status {
                                 button::Status::Hovered => {
@@ -381,7 +421,7 @@ impl ToDo {
                     }
 
                     self.tick_count += 1;
-                    if self.tick_count == 120 && !self.sleep{
+                    if self.tick_count == 120 && !self.sleep && self.auto_save{
                         // let _ = Task::perform(save_to_file(format!("{}/saves/{}", env!("CARGO_MANIFEST_DIR"), format!("auto{}_save.json", self.time.format("%H_%M").to_string())).into(), self.clone()), |result| Message::FileSave(result));
                         Task::perform(save_to_file(format!("{}/saves/", env!("CARGO_MANIFEST_DIR")).into(), "auto_save.json".to_owned(), self.clone()), |result| Message::FileSave(result))
                     } else {
@@ -427,10 +467,21 @@ impl ToDo {
                 // println!("Recieved Save Message");
                 Task::perform(save_to_file(format!("{}/saves/", env!("CARGO_MANIFEST_DIR")).into(), "saves.json".to_owned(),self.clone()), |result| Message::FileSave(result))
             },
+            Message::Open => {
+                // println!("Recieved Save Message");
+                Task::perform(read_from_file(format!("{}/saves/", env!("CARGO_MANIFEST_DIR")).into(), "saves.json".to_owned()), |result| Message::FileOpen(result))
+            },
             Message::FileSave(result) => {
                 match result {
                     Ok(_) => {},
                     Err(err) => {eprintln!("File Save failed {}", err)},
+                }
+                Task::none()
+            }
+            Message::FileOpen(result) => {
+                match result {
+                    Ok(new) => {self.replace(new)},
+                    Err(err) => {eprintln!("File Load failed {}", err)}
                 }
                 Task::none()
             }

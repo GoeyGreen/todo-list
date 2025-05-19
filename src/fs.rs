@@ -6,11 +6,9 @@ use crate::ToDo;
 fn save_to_json(contents: &crate::ToDo) -> JsonValue{
     let cur_task;
     let rest;
-    cur_task = ((contents.stopwatch.as_secs() + contents.old_dur.as_secs()),
-    (contents.stopwatch.as_millis()%1000) as u32 + (contents.old_dur.as_millis()%1000) as u32);
+    cur_task = (contents.current_task.export_time().as_secs(), (contents.current_task.export_time().as_millis()%1000) as u32);
 
-    rest = ((contents.pause_dur.as_secs() + contents.breaks.as_secs()),
-    (contents.pause_dur.as_millis()%1000) as u32 + (contents.breaks.as_millis()%1000) as u32);
+    rest = (contents.break_time.export_time().as_secs(), (contents.break_time.export_time().as_millis()%1000) as u32);
     let save = json::object!{
         completed: contents.complete,
         removed: contents.removed,
@@ -24,8 +22,8 @@ fn save_to_json(contents: &crate::ToDo) -> JsonValue{
             cur_task.1,
         ],
         prev_task: [
-            contents.last_time.as_secs(),
-            (contents.last_time.as_millis() % 1000) as u32
+            contents.last_task.export_time().as_secs(),
+            (contents.last_task.export_time().as_millis() % 1000) as u32
         ]
     };
     println!("{}", json::stringify_pretty(save.clone(), 4));

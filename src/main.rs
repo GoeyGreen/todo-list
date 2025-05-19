@@ -15,12 +15,13 @@ mod time;
 
 use styles::buttons::*;
 use styles::*;
+use time::Time;
 
 // DONE: Update Timing System, to improve consistency
+// DONE: Migrate to new Time struct to reduce complexity
+// DONE: Implement auto-save functionality, on certain tick count
 // TODO: Change Styling for file opening
-// TODO: Migrate to new Time struct to reduce complexity
 // TODO: Implement file system, saves, auto-load on start
-// TODO: Implement auto-save functionality, on certain tick count
 // TODO: Move auto save to separate struct
 // TODO: Create Settings Menu, autosave on task completion
 // TODO: Move to Serde JSON?
@@ -37,17 +38,10 @@ struct ToDo{
     add: bool,
     complete: u32,
     removed: u32,
-    start: Instant,
-    old_dur: Duration,
-    stopwatch: Duration,
-    stop_string: String,
-    last_time: Duration,
-    last_string: String,
+    current_task: Time,
+    last_task:Time,
     rest:bool,
-    pause_dur: Duration,
-    breaks: Duration,
-    break_start:Instant,
-    break_string:String,
+    break_time: Time,
     sleep:bool,
     reset:bool,
     tick_count: i32,
@@ -63,17 +57,10 @@ impl Default for ToDo {
             add: false,
             complete: 0,
             removed: 0,
-            start:Instant::now(),
-            old_dur: Duration::new(0,0),
-            stopwatch:Duration::new(0,0),
-            stop_string: String::new(),
-            last_time:Duration::new(0,0),
-            last_string: String::new(),
+            current_task: Time::new(Instant::now()),
+            last_task: Time::new(Instant::now()),
             rest: false,
-            breaks: Duration::new(0,0),
-            pause_dur:Duration::new(0,0),
-            break_start:Instant::now(),
-            break_string:String::new(),
+            break_time: Time::new(Instant::now()),
             sleep: false,
             reset: false,
             tick_count: 0,
@@ -105,9 +92,9 @@ impl ToDo {
             tasks:task_list,
             complete: completed,
             removed: removed_tasks,
-            old_dur: task_time,
-            last_time: prev_task_time,
-            pause_dur: break_time,
+            current_task: Time::from(task_time),
+            last_task: Time::from(prev_task_time),
+            break_time: Time::from(break_time),
             ..Default::default()
         }
     }
@@ -116,9 +103,9 @@ impl ToDo {
         self.tasks = todo.tasks;
         self.complete = todo.complete;
         self.removed = todo.removed;
-        self.old_dur = todo.old_dur;
-        self.last_time = todo.last_time;
-        self.pause_dur = todo.pause_dur;
+        self.current_task = todo.current_task;
+        self.last_task = todo.last_task;
+        self.break_time = todo.break_time;
     }
 
     pub fn view(&self) -> Element<Message>{
@@ -325,9 +312,9 @@ impl ToDo {
         main = main.push(Scrollable::new(tasks));
         main = main.push(vertical_space());
         // Times for tasks and time spent on breaks stored at the bottom row
-        main = main.push(Row::with_children(vec![text(format!("Current Task: {}", self.stop_string)).into(), 
-                        text(format!("Last Task: {}", self.last_string)).into(), 
-                        text(format!("Break Time: {}", self.break_string)).color(if self.rest {Color::from_rgb(255.0, 0.0, 0.0)} else {Color::from_rgb(255.0, 255.0, 255.0)}).into()]).spacing(20));
+        main = main.push(Row::with_children(vec![text(format!("Current Task: {}", self.current_task.to_string())).into(), 
+                        text(format!("Last Task: {}", self.last_task.to_string())).into(), 
+                        text(format!("Break Time: {}", self.break_time.to_string())).color(if self.rest {Color::from_rgb(255.0, 0.0, 0.0)} else {Color::from_rgb(255.0, 255.0, 255.0)}).into()]).spacing(20));
         
        
         main.into()
@@ -344,16 +331,9 @@ impl ToDo {
                         self.removed = 0;
                         self.rest = false;
                     }
-                    self.start = Instant::now();
-                    self.old_dur = Duration::new(0,0);
-                    self.stopwatch = Duration::new(0,0);
-                    self.stop_string = String::new();
-                    self.last_time = Duration::new(0,0);
-                    self.last_string = String::new();
-                    self.pause_dur = Duration::new(0,0);
-                    self.break_start = Instant::now();
-                    self.break_string = String::new();
-                    self.breaks = Duration::new(0,0);
+                    self.current_task = Time::new(Instant::now());
+                    self.last_task = Time::new(Instant::now());
+                    self.break_time = Time::new(Instant::now());
                     self.reset = false;
                 } else {
                     self.reset = true;
@@ -391,13 +371,10 @@ impl ToDo {
                 self.tasks.remove(task_num as usize);
 
                 // Caculate the total time it took for the task + move to last_time
-                self.last_time = self.stopwatch + self.old_dur;
-                self.last_string = format_duration(self.last_time);
+                self.last_task.copy(&mut self.current_task);
 
                 // Reset current task time
-                self.stopwatch = Duration::new(0,0);
-                self.start = Instant::now();
-                self.old_dur = Duration::new(0,0);
+                self.current_task = Time::new(Instant::now());
 
                 if completed {
                     self.complete += 1;
@@ -411,12 +388,10 @@ impl ToDo {
                     self.time = Local::now();
                     self.clock = self.time.format("%d/%m/%Y %H:%M:%S").to_string();
                     if !self.rest {
-                        self.stopwatch = self.start.elapsed();
-                        self.stop_string = format_duration(self.stopwatch + self.old_dur);
+                        self.current_task.tick();
                     } else {
                         if !self.sleep {
-                            self.breaks = self.break_start.elapsed();
-                            self.break_string = format_duration(self.breaks + self.pause_dur);
+                            self.break_time.tick();
                         }
                     }
 
@@ -435,29 +410,27 @@ impl ToDo {
                 if !self.rest{
                     // Start break + Add current task time to old_dur
                     self.rest = true;
-                    self.old_dur += self.start.elapsed();
-                    self.break_start = Instant::now();
-
-                    self.stopwatch = Duration::new(0,0);
+                    self.current_task.swap_current();
+                    self.break_time.new_start();
                 } else {
                     self.rest = false;
                     if !self.sleep {
-                        self.pause_dur += self.break_start.elapsed();
+                        self.break_time.swap_current();
                     } 
-                    self.breaks = Duration::new(0,0);
+                    self.break_time.new_start();
                     self.sleep = false;
-                    self.start = Instant::now();
+                    self.current_task.new_start();
                 }
                 Task::none()
             },
             Message::Sleep => {
                 if self.sleep {
                     if self.rest {
-                        self.break_start = Instant::now();
+                        self.break_time.new_start();
                     }
                 } else {
                     if self.rest {
-                        self.pause_dur += self.break_start.elapsed();
+                        self.break_time.swap_current();
                     }
                 }
                 self.sleep = !self.sleep;
